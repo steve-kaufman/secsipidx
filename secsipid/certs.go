@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func NewCerts(pubKey []byte) (Certs, *Error) {
+func NewCertsFromKey(pubKey []byte) (Certs, *Error) {
 	certs := Certs{}
 	err := parseKeyIntoCerts(pubKey, &certs)
 	if err != nil {
@@ -32,7 +32,7 @@ func parseKeyIntoCerts(key []byte, certs *Certs) *Error {
 	if err != nil {
 		return &Error{Code: SJWTRetErrCertInvalidFormat, Msg: err.Error()}
 	}
-	certs.Add(cert)
+	certs.add(cert)
 
 	return parseKeyIntoCerts(key, certs) // Do it again for the next block
 }
@@ -44,7 +44,7 @@ type Certs struct {
 
 // Adds an x509 Certificate to the list of certs.
 // Assumes the first cert added is the public cert.
-func (c *Certs) Add(cert *x509.Certificate) {
+func (c *Certs) add(cert *x509.Certificate) {
 	if c.publicCert == nil {
 		c.publicCert = cert
 		return

@@ -13,7 +13,7 @@ func GetSystemCAs() (*x509.CertPool, *Error) {
 	return systemCAs, nil
 }
 
-func AddCustomCA(fileName string, rootCAs *x509.CertPool) *Error {
+func AddCAToPool(fileName string, rootCAs *x509.CertPool) *Error {
 	certsCA, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		return &Error{Code: SJWTRetErrCertReadCAFile, Msg: "failed to read CA file"}
