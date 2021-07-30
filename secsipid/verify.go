@@ -117,13 +117,16 @@ func addCustomCAsIfNeeded(options SJWTLibOptions, rootCAs *x509.CertPool) *Error
 
 func buildInterCAsWithOptions(options SJWTLibOptions, certs Certs) (*x509.CertPool, *Error) {
 	interCAs := x509.NewCertPool()
-	if options.ShouldVerifyWithIntermediateCA() {
-		err := addCAFileToPool(globalLibOptions.CertCAInter, interCAs)
-		if err != nil {
-			return nil, err
-		}
-		certs.AddIntermediateCertsToPool(interCAs)
+	if !options.ShouldVerifyWithIntermediateCA() {
+		return interCAs, nil
 	}
+
+	err := addCAFileToPool(globalLibOptions.CertCAInter, interCAs)
+	if err != nil {
+		return nil, err
+	}
+	certs.AddIntermediateCertsToPool(interCAs)
+
 	return interCAs, nil
 }
 
