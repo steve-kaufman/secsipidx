@@ -30,16 +30,7 @@ func verifyCertsWithOptions(certs Certs, options SJWTLibOptions) (int, error) {
 		return err.Simplify()
 	}
 
-	rootCAs, err := buildRootCAs(options)
-	if err != nil {
-		return err.Simplify()
-	}
-	interCAs, err := buildInterCAs(options, certs)
-	if err != nil {
-		return err.Simplify()
-	}
-
-	err = certs.VerifyWithCAs(rootCAs, interCAs)
+	err = verifyCertsWithCAs(options, certs)
 	if err != nil {
 		return err.Simplify()
 	}
@@ -63,34 +54,90 @@ func verifyPublicCertWithTime(options SJWTLibOptions, certs Certs) *Error {
 	return nil
 }
 
-func buildRootCAs(options SJWTLibOptions) (*x509.CertPool, *Error) {
-	rootCAs := x509.NewCertPool()
-	if options.ShouldVerifyWithSystemCA() {
-		systemCAs, err := x509.SystemCertPool()
-		if err != nil {
-			return nil, &Error{Code: SJWTRetErrCertProcessing, Msg: err.Error()}
-		}
-		rootCAs = systemCAs
+func verifyCertsWithCAs(options SJWTLibOptions, certs Certs) *Error {
+	rootCAs, interCAs, err := buildCAsWithOptions(options, certs)
+	if err != nil {
+		return err
 	}
-	if options.ShouldVerifyWithCustomCA() {
-		err := AddCAToPool(options.CertCAFile, rootCAs)
-		if err != nil {
-			return nil, err
-		}
+
+	err = certs.VerifyWithCAs(rootCAs, interCAs)
+	if err != nil {
+		return err
 	}
+	return nil
+}
+
+func buildCAsWithOptions(options SJWTLibOptions, certs Certs) (*x509.CertPool, *x509.CertPool, *Error) {
+	rootCAs, err := buildRootCAsWithOptions(options)
+	if err != nil {
+		return nil, nil, err
+	}
+	interCAs, err := buildInterCAsWithOptions(options, certs)
+	if err != nil {
+		return nil, nil, err
+	}
+	return rootCAs, interCAs, nil
+}
+
+func buildRootCAsWithOptions(options SJWTLibOptions) (*x509.CertPool, *Error) {
+	rootCAs, err := getBaseRootCAs(options)
+	if err != nil {
+		return nil, err
+	}
+
+	err = addCustomCAsIfNeeded(options, rootCAs)
+	if err != nil {
+		return nil, err
+	}
+
 	return rootCAs, nil
 }
 
-func buildInterCAs(options SJWTLibOptions, certs Certs) (*x509.CertPool, *Error) {
+func getBaseRootCAs(options SJWTLibOptions) (*x509.CertPool, *Error) {
+	if !options.ShouldVerifyWithSystemCA() {
+		return x509.NewCertPool(), nil
+	}
+	systemCAs, err := x509.SystemCertPool()
+	if err != nil {
+		return nil, &Error{Code: SJWTRetErrCertProcessing, Msg: err.Error()}
+	}
+	return systemCAs, nil
+}
+
+func addCustomCAsIfNeeded(options SJWTLibOptions, rootCAs *x509.CertPool) *Error {
+	if !options.ShouldVerifyWithCustomCA() {
+		return nil
+	}
+	err := addCAFileToPool(options.CertCAFile, rootCAs)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func buildInterCAsWithOptions(options SJWTLibOptions, certs Certs) (*x509.CertPool, *Error) {
 	interCAs := x509.NewCertPool()
 	if options.ShouldVerifyWithIntermediateCA() {
-		err := AddCAToPool(globalLibOptions.CertCAInter, interCAs)
+		err := addCAFileToPool(globalLibOptions.CertCAInter, interCAs)
 		if err != nil {
 			return nil, err
 		}
 		certs.AddIntermediateCertsToPool(interCAs)
 	}
 	return interCAs, nil
+}
+
+func addCAFileToPool(fileName string, rootCAs *x509.CertPool) *Error {
+	certsCA, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		return &Error{Code: SJWTRetErrCertReadCAFile, Msg: "failed to read CA file"}
+	}
+
+	if ok := rootCAs.AppendCertsFromPEM(certsCA); !ok {
+		return &Error{Code: SJWTRetErrCertProcessing, Msg: "failed to append CA file"}
+	}
+
+	return nil
 }
 
 func verifyWithCLRFile(options SJWTLibOptions, certs Certs) *Error {
