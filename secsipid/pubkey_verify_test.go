@@ -265,6 +265,42 @@ func TestPubKeyVerify(t *testing.T) {
 		os.Remove("dummyCA.pem")
 		os.Remove("dummyInterCA.pem")
 	})
+
+	t.Run("ErrCertNoCRLFile with no CRL file", func(t *testing.T) {
+		cert := certGenerator.generateValidCert()
+
+		os.WriteFile("dummyCA.pem", certGenerator.caPEMBytes, 0777)
+		secsipid.SJWTLibOptSetS("CertCAFile", "dummyCA.pem")
+
+		runTest(t, PubKeyVerifyTest{
+			certVerify: 0b10100,
+			inputKey:   cert,
+
+			expectedErrCode: secsipid.SJWTRetErrCertNoCRLFile,
+			expectedErrMsg:  "no CRL file",
+		})
+
+		os.Remove("dummyCA.pem")
+	})
+
+	t.Run("ErrCertReadCRLFile with non-existant CRL file", func(t *testing.T) {
+		cert := certGenerator.generateValidCert()
+
+		os.WriteFile("dummyCA.pem", certGenerator.caPEMBytes, 0777)
+		secsipid.SJWTLibOptSetS("CertCAFile", "dummyCA.pem")
+
+		secsipid.SJWTLibOptSetS("CertCRLFile", "dummyCRLFile.crl")
+
+		runTest(t, PubKeyVerifyTest{
+			certVerify: 0b10100,
+			inputKey:   cert,
+
+			expectedErrCode: secsipid.SJWTRetErrCertReadCRLFile,
+			expectedErrMsg:  "failed to read CRL file",
+		})
+
+		os.Remove("dummyCA.pem")
+	})
 }
 
 func getMsgFromErr(err error) string {
