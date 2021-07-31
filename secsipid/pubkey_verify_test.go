@@ -39,6 +39,10 @@ func TestPubKeyVerify(t *testing.T) {
 		expect(errMsg).ToBe(testCase.expectedErrMsg)
 	}
 
+	os.Remove("dummyCA.pem")
+	os.Remove("dummyInterCA.pem")
+	os.Remove("dummyCRLFile.crl")
+
 	// Test
 	t.Run("OK when certVerify is 0", func(t *testing.T) {
 		runTest(t, PubKeyVerifyTest{
@@ -300,6 +304,77 @@ func TestPubKeyVerify(t *testing.T) {
 		})
 
 		os.Remove("dummyCA.pem")
+		os.Remove("dummyCRLFile.crl")
+	})
+
+	t.Run("OK if CRL does not contain cert", func(t *testing.T) {
+		cert := certGenerator.generateValidCert()
+
+		os.WriteFile("dummyCA.pem", certGenerator.caPEMBytes, 0777)
+		secsipid.SJWTLibOptSetS("CertCAFile", "dummyCA.pem")
+
+		crl := &x509.RevocationList{
+			Number: big.NewInt(1),
+			RevokedCertificates: []pkix.RevokedCertificate{
+				{
+					SerialNumber:   big.NewInt(0),
+					RevocationTime: time.Now(),
+				},
+			},
+			ThisUpdate: time.Now(),
+			NextUpdate: time.Now().AddDate(1, 0, 0),
+		}
+		crlBytes, _ := x509.CreateRevocationList(
+			rand.Reader, crl, certGenerator.ca, certGenerator.caPrivKey)
+
+		os.WriteFile("dummyCRLFile.crl", crlBytes, 0777)
+		secsipid.SJWTLibOptSetS("CertCRLFile", "dummyCRLFile.crl")
+
+		runTest(t, PubKeyVerifyTest{
+			certVerify: 0b10100,
+			inputKey:   cert,
+
+			expectedErrCode: secsipid.SJWTRetOK,
+			expectedErrMsg:  "",
+		})
+
+		os.Remove("dummyCA.pem")
+	})
+
+	t.Run("ErrCertRevoked when CRL contains cert", func(t *testing.T) {
+		cert, serialNum := certGenerator.generateCertWithTimes(
+			time.Now(), time.Now().AddDate(1, 0, 0))
+
+		os.WriteFile("dummyCA.pem", certGenerator.caPEMBytes, 0777)
+		secsipid.SJWTLibOptSetS("CertCAFile", "dummyCA.pem")
+
+		crl := &x509.RevocationList{
+			Number: big.NewInt(1),
+			RevokedCertificates: []pkix.RevokedCertificate{
+				{
+					SerialNumber:   serialNum,
+					RevocationTime: time.Now(),
+				},
+			},
+			ThisUpdate: time.Now(),
+			NextUpdate: time.Now().AddDate(1, 0, 0),
+		}
+		crlBytes, _ := x509.CreateRevocationList(
+			rand.Reader, crl, certGenerator.ca, certGenerator.caPrivKey)
+
+		os.WriteFile("dummyCRLFile.crl", crlBytes, 0777)
+		secsipid.SJWTLibOptSetS("CertCRLFile", "dummyCRLFile.crl")
+
+		runTest(t, PubKeyVerifyTest{
+			certVerify: 0b10100,
+			inputKey:   cert,
+
+			expectedErrCode: secsipid.SJWTRetErrCertRevoked,
+			expectedErrMsg:  "serial number match - certificate is revoked",
+		})
+
+		os.Remove("dummyCA.pem")
+		os.Remove("dummyCRLFile.crl")
 	})
 }
 
@@ -317,8 +392,11 @@ type DummyCertGenerator struct {
 }
 
 func NewDummyCA() DummyCertGenerator {
+	caPrivKey, _ := rsa.GenerateKey(rand.Reader, 512)
+
 	ca := &x509.Certificate{
 		SerialNumber: big.NewInt(2019),
+		SubjectKeyId: x509.MarshalPKCS1PublicKey(&caPrivKey.PublicKey),
 		Subject: pkix.Name{
 			Organization:  []string{"Foo, Inc."},
 			Country:       []string{"Fantasyland"},
@@ -331,11 +409,9 @@ func NewDummyCA() DummyCertGenerator {
 		NotAfter:              time.Now().AddDate(10, 0, 0),
 		IsCA:                  true,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
-		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
 		BasicConstraintsValid: true,
 	}
-
-	caPrivKey, _ := rsa.GenerateKey(rand.Reader, 512)
 
 	caBytes, _ := x509.CreateCertificate(
 		rand.Reader, ca, ca, &caPrivKey.PublicKey, caPrivKey)
@@ -392,29 +468,33 @@ func NewIntermediateCA(certGenerator DummyCertGenerator) DummyCertGenerator {
 }
 
 func (gen DummyCertGenerator) generateExpiredCert() []byte {
-	return gen.generateCertWithTimes(
+	cert, _ := gen.generateCertWithTimes(
 		time.Now().AddDate(-1, 0, 0), // 1 year ago
 		time.Now().AddDate(0, 0, -1), // 1 day ago
 	)
+	return cert
 }
 
 func (gen DummyCertGenerator) generateCertBeforeValidity() []byte {
-	return gen.generateCertWithTimes(
+	cert, _ := gen.generateCertWithTimes(
 		time.Now().AddDate(1, 0, 0), // 1 year from now
 		time.Now().AddDate(2, 0, 0), // 2 years from now
 	)
+	return cert
 }
 
 func (gen DummyCertGenerator) generateValidCert() []byte {
-	return gen.generateCertWithTimes(
+	cert, _ := gen.generateCertWithTimes(
 		time.Now(),
 		time.Now().AddDate(1, 0, 0), // 1 year from now
 	)
+	return cert
 }
 
-func (gen DummyCertGenerator) generateCertWithTimes(notBefore time.Time, notAfter time.Time) []byte {
+func (gen DummyCertGenerator) generateCertWithTimes(notBefore time.Time, notAfter time.Time) ([]byte, *big.Int) {
+	serialNum, _ := rand.Int(rand.Reader, big.NewInt(10000))
 	cert := &x509.Certificate{
-		SerialNumber: big.NewInt(1658),
+		SerialNumber: serialNum,
 		Subject: pkix.Name{
 			Organization:  []string{"Bar, Inc."},
 			Country:       []string{"Fantasyland"},
@@ -447,5 +527,5 @@ func (gen DummyCertGenerator) generateCertWithTimes(notBefore time.Time, notAfte
 		Bytes: x509.MarshalPKCS1PrivateKey(certPrivKey),
 	})
 
-	return certPEM.Bytes()
+	return certPEM.Bytes(), serialNum
 }
