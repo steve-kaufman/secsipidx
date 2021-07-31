@@ -69,7 +69,7 @@ func TestPubKeyVerify(t *testing.T) {
 		cert := certGenerator.generateExpiredCert()
 
 		runTest(t, PubKeyVerifyTest{
-			certVerify: 0b0001,
+			certVerify: 0b00001,
 			inputKey:   cert,
 
 			expectedErrCode: secsipid.SJWTRetErrCertExpired,
@@ -81,7 +81,7 @@ func TestPubKeyVerify(t *testing.T) {
 		cert := certGenerator.generateCertBeforeValidity()
 
 		runTest(t, PubKeyVerifyTest{
-			certVerify: 0b0001,
+			certVerify: 0b00001,
 			inputKey:   cert,
 
 			expectedErrCode: secsipid.SJWTRetErrCertBeforeValidity,
@@ -93,7 +93,7 @@ func TestPubKeyVerify(t *testing.T) {
 		cert := certGenerator.generateValidCert()
 
 		runTest(t, PubKeyVerifyTest{
-			certVerify: 0b0001, // haven't enabled system CA or custom CA
+			certVerify: 0b00001, // haven't enabled system CA or custom CA
 			inputKey:   cert,
 
 			expectedErrCode: secsipid.SJWTRetErrCertInvalid,
@@ -105,7 +105,7 @@ func TestPubKeyVerify(t *testing.T) {
 		cert := certGenerator.generateValidCert()
 
 		runTest(t, PubKeyVerifyTest{
-			certVerify: 0b0010,
+			certVerify: 0b00010,
 			inputKey:   cert,
 
 			expectedErrCode: secsipid.SJWTRetErrCertInvalid,
@@ -114,9 +114,15 @@ func TestPubKeyVerify(t *testing.T) {
 	})
 
 	t.Run("Cert is valid with dummy system CAs", func(t *testing.T) {
+		oldSSLCertDir := os.Getenv("SSL_CERT_DIR")
+		oldSSLCertFile := os.Getenv("SSL_CERT_FILE")
+
 		workDir, _ := os.Getwd()
+
 		os.Setenv("SSL_CERT_DIR", workDir)
+		defer os.Setenv("SSL_CERT_DIR", oldSSLCertDir)
 		os.Setenv("SSL_CERT_FILE", path.Join(workDir, "dummyCA.pem"))
+		defer os.Setenv("SSL_CERT_FILE", oldSSLCertFile)
 
 		println(os.Getenv("SSL_CERT_DIR"))
 
@@ -126,7 +132,7 @@ func TestPubKeyVerify(t *testing.T) {
 		secsipid.ResetSystemCertPool()
 
 		runTest(t, PubKeyVerifyTest{
-			certVerify: 0b0010,
+			certVerify: 0b00010,
 			inputKey:   cert,
 
 			expectedErrCode: secsipid.SJWTRetOK,
@@ -134,6 +140,130 @@ func TestPubKeyVerify(t *testing.T) {
 		})
 
 		os.Remove("dummyCA.pem")
+	})
+
+	t.Run("ErrCertNoCAFile with no CA file", func(t *testing.T) {
+		cert := certGenerator.generateValidCert()
+
+		runTest(t, PubKeyVerifyTest{
+			certVerify: 0b00100,
+			inputKey:   cert,
+
+			expectedErrCode: secsipid.SJWTRetErrCertNoCAFile,
+			expectedErrMsg:  "no CA file",
+		})
+	})
+
+	t.Run("ErrCertReadCAFile with non-existant CA file", func(t *testing.T) {
+		cert := certGenerator.generateValidCert()
+
+		secsipid.SJWTLibOptSetS("CertCAFile", "nonexistant.pem")
+
+		runTest(t, PubKeyVerifyTest{
+			certVerify: 0b00100,
+			inputKey:   cert,
+
+			expectedErrCode: secsipid.SJWTRetErrCertReadCAFile,
+			expectedErrMsg:  "failed to read CA file",
+		})
+	})
+
+	t.Run("ErrCertProcessing with invalid CA file", func(t *testing.T) {
+		cert := certGenerator.generateValidCert()
+
+		secsipid.SJWTLibOptSetS("CertCAFile", "dummyCA.pem")
+		os.WriteFile("dummyCA.pem", []byte("invalid cert"), 0777)
+
+		runTest(t, PubKeyVerifyTest{
+			certVerify: 0b00100,
+			inputKey:   cert,
+
+			expectedErrCode: secsipid.SJWTRetErrCertProcessing,
+			expectedErrMsg:  "failed to append CA file",
+		})
+
+		os.Remove("dummyCA.pem")
+	})
+
+	t.Run("OK with correct custom CA file", func(t *testing.T) {
+		cert := certGenerator.generateValidCert()
+		os.WriteFile("dummyCA.pem", certGenerator.caPEMBytes, 0777)
+
+		secsipid.SJWTLibOptSetS("CertCAFile", "dummyCA.pem")
+
+		runTest(t, PubKeyVerifyTest{
+			certVerify: 0b00100,
+			inputKey:   cert,
+
+			expectedErrCode: secsipid.SJWTRetOK,
+			expectedErrMsg:  "",
+		})
+
+		os.Remove("dummyCA.pem")
+	})
+
+	t.Run("ErrCertNoCAInter with no intermediate CA file", func(t *testing.T) {
+		cert := certGenerator.generateValidCert()
+
+		runTest(t, PubKeyVerifyTest{
+			certVerify: 0b01000,
+			inputKey:   cert,
+
+			expectedErrCode: secsipid.SJWTRetErrCertNoCAInter,
+			expectedErrMsg:  "no intermediate CA file",
+		})
+	})
+
+	t.Run("ErrCertReadCAInter with non-existant intermediate CA file", func(t *testing.T) {
+		cert := certGenerator.generateValidCert()
+
+		secsipid.SJWTLibOptSetS("CertCAInter", "nonexistant.pem")
+
+		runTest(t, PubKeyVerifyTest{
+			certVerify: 0b01000,
+			inputKey:   cert,
+
+			expectedErrCode: secsipid.SJWTRetErrCertReadCAInter,
+			expectedErrMsg:  "failed to read intermediate CA file",
+		})
+	})
+
+	t.Run("ErrCertProcessing with invalid intermediate CA file", func(t *testing.T) {
+		cert := certGenerator.generateValidCert()
+
+		os.WriteFile("dummyInterCA.pem", []byte("invalid cert"), 0777)
+		secsipid.SJWTLibOptSetS("CertCAInter", "dummyInterCA.pem")
+
+		runTest(t, PubKeyVerifyTest{
+			certVerify: 0b01000,
+			inputKey:   cert,
+
+			expectedErrCode: secsipid.SJWTRetErrCertProcessing,
+			expectedErrMsg:  "failed to append intermediate CA file",
+		})
+
+		os.Remove("dummyInterCA.pem")
+	})
+
+	t.Run("OK with correct intermediate and root CA files", func(t *testing.T) {
+		interCertGenerator := NewIntermediateCA(certGenerator)
+		cert := interCertGenerator.generateValidCert()
+
+		os.WriteFile("dummyCA.pem", certGenerator.caPEMBytes, 0777)
+		os.WriteFile("dummyInterCA.pem", interCertGenerator.caPEMBytes, 0777)
+		secsipid.SJWTLibOptSetS("CertCAFile", "dummyCA.pem")
+		secsipid.SJWTLibOptSetS("CertCAInter", "dummyInterCA.pem")
+
+		runTest(t, PubKeyVerifyTest{
+			certVerify: 0b01100,
+			inputKey:   cert,
+
+			expectedErrCode: secsipid.SJWTRetOK,
+			expectedErrMsg:  "",
+		})
+
+		os.Remove("dummyCA.pem")
+		os.Remove("dummyInterCA.pem")
 	})
 }
 
@@ -173,6 +303,44 @@ func NewDummyCA() DummyCertGenerator {
 
 	caBytes, _ := x509.CreateCertificate(
 		rand.Reader, ca, ca, &caPrivKey.PublicKey, caPrivKey)
+
+	caPEM := new(bytes.Buffer)
+	pem.Encode(caPEM, &pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: caBytes,
+	})
+
+	return DummyCertGenerator{
+		ca:         ca,
+		caPrivKey:  caPrivKey,
+		caPEMBytes: caPEM.Bytes(),
+	}
+}
+
+func NewIntermediateCA(certGenerator DummyCertGenerator) DummyCertGenerator {
+	ca := &x509.Certificate{
+		SerialNumber: big.NewInt(2020),
+		Subject: pkix.Name{
+			Organization:  []string{"FooBar, Inc."},
+			Country:       []string{"Fantasyland"},
+			Province:      []string{""},
+			Locality:      []string{"Metropolis"},
+			StreetAddress: []string{"333 Main St."},
+			PostalCode:    []string{"33333"},
+		},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().AddDate(10, 0, 0),
+		IsCA:                  true,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
+		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		BasicConstraintsValid: true,
+	}
+
+	caPrivKey, _ := rsa.GenerateKey(rand.Reader, 512)
+
+	caBytes, _ := x509.CreateCertificate(
+		rand.Reader, ca, certGenerator.ca,
+		&caPrivKey.PublicKey, certGenerator.caPrivKey)
 
 	caPEM := new(bytes.Buffer)
 	pem.Encode(caPEM, &pem.Block{
