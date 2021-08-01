@@ -5,7 +5,6 @@ import (
 	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/x509"
-	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
@@ -22,54 +21,6 @@ import (
 	"unicode"
 
 	"github.com/google/uuid"
-)
-
-// return and error code values
-const (
-	SJWTRetOK = 0
-	// generic errors
-	SJWTRetErr = -1
-	// public certificate and private key errors: -100..-199
-	SJWTRetErrCertInvalid         = -101
-	SJWTRetErrCertInvalidFormat   = -102
-	SJWTRetErrCertExpired         = -103
-	SJWTRetErrCertBeforeValidity  = -104
-	SJWTRetErrCertProcessing      = -105
-	SJWTRetErrCertNoCAFile        = -106
-	SJWTRetErrCertReadCAFile      = -107
-	SJWTRetErrCertNoCAInter       = -108
-	SJWTRetErrCertReadCAInter     = -109
-	SJWTRetErrCertNoCRLFile       = -110
-	SJWTRetErrCertReadCRLFile     = -111
-	SJWTRetErrCertRevoked         = -112
-	SJWTRetErrCertInvalidEC       = -114
-	SJWTRetErrPrvKeyInvalid       = -151
-	SJWTRetErrPrvKeyInvalidFormat = -152
-	SJWTRetErrPrvKeyInvalidEC     = -152
-	// identity JSON header, payload and signature errors: -200..-299
-	SJWTRetErrJSONHdrParse          = -201
-	SJWTRetErrJSONHdrAlg            = -202
-	SJWTRetErrJSONHdrPpt            = -203
-	SJWTRetErrJSONHdrTyp            = -204
-	SJWTRetErrJSONHdrX5u            = -205
-	SJWTRetErrJSONPayloadParse      = -231
-	SJWTRetErrJSONPayloadIATExpired = -232
-	SJWTRetErrJSONSignatureInvalid  = -251
-	SJWTRetErrJSONSignatureHashing  = -252
-	SJWTRetErrJSONSignatureSize     = -253
-	SJWTRetErrJSONSignatureFailure  = -254
-	// identity SIP header errors: -300..-399
-	SJWTRetErrSIPHdrParse = -301
-	SJWTRetErrSIPHdrAlg   = -302
-	SJWTRetErrSIPHdrPpt   = -303
-	SJWTRetErrSIPHdrInfo  = -303
-	SJWTRetErrSIPHdrEmpty = -304
-	// http and file operations errors: -400..-499
-	SJWTRetErrHTTPInvalidURL = -401
-	SJWTRetErrHTTPGet        = -402
-	SJWTRetErrHTTPStatusCode = -403
-	SJWTRetErrHTTPReadBody   = -404
-	SJWTRetErrFileRead       = -451
 )
 
 // SJWTHeader - header for JWT
@@ -99,26 +50,6 @@ type SJWTPayload struct {
 	OrigID string   `json:"origid"`
 }
 
-type SJWTLibOptions struct {
-	cacheDirPath string
-	cacheExpire  int
-	certCAFile   string
-	certCAInter  string
-	certCRLFile  string
-	certVerify   int
-	x5u          string
-}
-
-var globalLibOptions = SJWTLibOptions{
-	cacheDirPath: "",
-	cacheExpire:  3600,
-	certCAFile:   "",
-	certCAInter:  "",
-	certCRLFile:  "",
-	certVerify:   0,
-	x5u:          "https://127.0.0.1/cert.pem",
-}
-
 var (
 	sES256KeyBits = 256
 	sES256KeySize = 32
@@ -126,27 +57,27 @@ var (
 
 // SetFileCacheOptions --
 func SetURLFileCacheOptions(path string, expire int) {
-	globalLibOptions.cacheDirPath = path
-	globalLibOptions.cacheExpire = expire
+	globalLibOptions.CacheDirPath = path
+	globalLibOptions.CacheExpire = expire
 }
 
 // SJWTLibOptSetS --
 func SJWTLibOptSetS(optname string, optval string) int {
 	switch optname {
 	case "CacheDirPath":
-		globalLibOptions.cacheDirPath = optval
+		globalLibOptions.CacheDirPath = optval
 		return SJWTRetOK
 	case "CertCAFile":
-		globalLibOptions.certCAFile = optval
+		globalLibOptions.CertCAFile = optval
 		return SJWTRetOK
 	case "CertCRLFile":
-		globalLibOptions.certCRLFile = optval
+		globalLibOptions.CertCRLFile = optval
 		return SJWTRetOK
 	case "CertCAInter":
-		globalLibOptions.certCAInter = optval
+		globalLibOptions.CertCAInter = optval
 		return SJWTRetOK
 	case "x5u":
-		globalLibOptions.x5u = optval
+		globalLibOptions.X5u = optval
 		return SJWTRetOK
 	}
 	return SJWTRetErr
@@ -156,10 +87,10 @@ func SJWTLibOptSetS(optname string, optval string) int {
 func SJWTLibOptSetN(optname string, optval int) int {
 	switch optname {
 	case "CacheExpires":
-		globalLibOptions.cacheExpire = optval
+		globalLibOptions.CacheExpire = optval
 		return SJWTRetOK
 	case "CertVerify":
-		globalLibOptions.certVerify = optval
+		globalLibOptions.CertVerify = optval
 		return SJWTRetOK
 	}
 	return SJWTRetErr
@@ -195,161 +126,10 @@ func SJWTRemoveWhiteSpaces(s string) string {
 func SJWTGetURLCacheFilePath(urlVal string) string {
 	filePath := strings.Replace(urlVal, "://", "_", -1)
 	filePath = strings.Replace(filePath, "/", "_", -1)
-	if len(globalLibOptions.cacheDirPath) > 0 {
-		filePath = globalLibOptions.cacheDirPath + "/" + filePath
+	if len(globalLibOptions.CacheDirPath) > 0 {
+		filePath = globalLibOptions.CacheDirPath + "/" + filePath
 	}
 	return filePath
-}
-
-// SJWTPubKeyVerify -
-func SJWTPubKeyVerify(pubKey []byte) (int, error) {
-	if globalLibOptions.certVerify == 0 {
-		return SJWTRetOK, nil
-	}
-
-	var certVal *x509.Certificate
-	var certInter []*x509.Certificate
-	var rootCAs *x509.CertPool
-	var interCAs *x509.CertPool
-	var err error
-
-	// The public key may contain multiple intermediate certificates, we must
-	// parse those out and include them when doing the actual validation.
-	var toDecode = pubKey
-	var block *pem.Block
-	for true {
-		// Decode the next block in the public key. If there are no more blocks then
-		// this will return nil.
-		block, toDecode = pem.Decode(toDecode)
-		if block == nil {
-			break
-		}
-
-		// Parse the block as an x509 certificate.
-		blockCert, err := x509.ParseCertificate(block.Bytes)
-		if blockCert == nil {
-			return SJWTRetErrCertInvalidFormat, err
-		}
-
-		// If this was the first block then it represents the public certificate,
-		// otherwise it is an intermediate certificate.
-		if certVal == nil {
-			certVal = blockCert
-		} else {
-			certInter = append(certInter, blockCert)
-		}
-	}
-
-	if certVal == nil {
-		return SJWTRetErrCertInvalidFormat, errors.New("failed to parse certificate PEM")
-	}
-
-	if (globalLibOptions.certVerify & (1 << 0)) != 0 {
-		if !time.Now().Before(certVal.NotAfter) {
-			return SJWTRetErrCertExpired, errors.New("certificate expired")
-		} else if !time.Now().After(certVal.NotBefore) {
-			return SJWTRetErrCertBeforeValidity, errors.New("certificate not valid yet")
-		}
-	}
-
-	rootCAs = nil
-	interCAs = nil
-	if (globalLibOptions.certVerify & (1 << 1)) != 0 {
-		// Get the SystemCertPool
-		rootCAs, err = SystemCertPool()
-		if rootCAs == nil {
-			return SJWTRetErrCertProcessing, err
-		}
-	}
-	if (globalLibOptions.certVerify & (1 << 2)) != 0 {
-		if len(globalLibOptions.certCAFile) <= 0 {
-			return SJWTRetErrCertNoCAFile, errors.New("no CA file")
-		}
-
-		if rootCAs == nil {
-			rootCAs = x509.NewCertPool()
-			if rootCAs == nil {
-				return SJWTRetErrCertProcessing, errors.New("no new ca cert pool")
-			}
-		}
-		var certsCA []byte
-		// Read in the cert file
-		certsCA, err = ioutil.ReadFile(globalLibOptions.certCAFile)
-		if err != nil {
-			return SJWTRetErrCertReadCAFile, errors.New("failed to read CA file")
-		}
-
-		// Append our cert to the system pool
-		if ok := rootCAs.AppendCertsFromPEM(certsCA); !ok {
-			return SJWTRetErrCertProcessing, errors.New("failed to append CA file")
-		}
-	}
-	if (globalLibOptions.certVerify & (1 << 3)) != 0 {
-		if len(globalLibOptions.certCAInter) <= 0 {
-			return SJWTRetErrCertNoCAInter, errors.New("no intermediate CA file")
-		}
-		interCAs = x509.NewCertPool()
-		if interCAs == nil {
-			return SJWTRetErrCertProcessing, errors.New("no new ca intermediate cert pool")
-		}
-		var certsCA []byte
-		// Read in the cert file
-		certsCA, err = ioutil.ReadFile(globalLibOptions.certCAInter)
-		if err != nil {
-			return SJWTRetErrCertReadCAInter, errors.New("failed to read intermediate CA file")
-		}
-
-		// Append our cert to the system pool
-		if ok := interCAs.AppendCertsFromPEM(certsCA); !ok {
-			return SJWTRetErrCertProcessing, errors.New("failed to append intermediate CA file")
-		}
-	}
-
-	// Append any intermediate certificates included in pubKey.
-	if len(certInter) > 0 {
-		if interCAs == nil {
-			interCAs = x509.NewCertPool()
-		}
-		if interCAs == nil {
-			return SJWTRetErrCertProcessing, errors.New("no new ca intermediate cert pool")
-		}
-		// Append our certs
-		for _, iCert := range certInter {
-			interCAs.AddCert(iCert)
-		}
-	}
-
-	opts := x509.VerifyOptions{
-		Roots:         rootCAs,
-		Intermediates: interCAs,
-		KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
-	}
-
-	if _, err = certVal.Verify(opts); err != nil {
-		return SJWTRetErrCertInvalid, err
-	}
-
-	if (globalLibOptions.certVerify & (1 << 4)) != 0 {
-		if len(globalLibOptions.certCRLFile) <= 0 {
-			return SJWTRetErrCertNoCRLFile, errors.New("no CRL file")
-		}
-		var rootCRL *pkix.CertificateList
-		rootCRL = nil
-		var certsCRLData []byte
-		// Read in the cert file
-		certsCRLData, err = ioutil.ReadFile(globalLibOptions.certCRLFile)
-		if err != nil {
-			return SJWTRetErrCertReadCRLFile, errors.New("failed to read CRL file")
-		}
-		rootCRL, err = x509.ParseCRL(certsCRLData)
-		for _, revoked := range rootCRL.TBSCertList.RevokedCertificates {
-			if certVal.SerialNumber.Cmp(revoked.SerialNumber) == 0 {
-				return SJWTRetErrCertRevoked, errors.New("serial number match - certificate is revoked")
-			}
-		}
-	}
-
-	return SJWTRetOK, nil
 }
 
 // SJWTParseECPrivateKeyFromPEM Parse PEM encoded Elliptic Curve Private Key Structure
@@ -448,7 +228,7 @@ func SJWTGetURLCachedContent(urlVal string) ([]byte, error) {
 		return nil, err
 	}
 	tnow := time.Now()
-	if int(tnow.Sub(fileStat.ModTime()).Seconds()) > globalLibOptions.cacheExpire {
+	if int(tnow.Sub(fileStat.ModTime()).Seconds()) > globalLibOptions.CacheExpire {
 		os.Remove(filePath)
 		return nil, nil
 	}
@@ -472,7 +252,7 @@ func SJWTGetURLContent(urlVal string, timeoutVal int) ([]byte, int, error) {
 		return nil, SJWTRetErrHTTPInvalidURL, errors.New("invalid URL value")
 	}
 
-	if len(globalLibOptions.cacheDirPath) > 0 {
+	if len(globalLibOptions.CacheDirPath) > 0 {
 		cdata, cerr := SJWTGetURLCachedContent(urlVal)
 		if cdata != nil {
 			return cdata, SJWTRetOK, cerr
@@ -496,7 +276,7 @@ func SJWTGetURLContent(urlVal string, timeoutVal int) ([]byte, int, error) {
 		return nil, SJWTRetErrHTTPReadBody, fmt.Errorf("read http body failure: %v", err)
 	}
 
-	if len(globalLibOptions.cacheDirPath) > 0 {
+	if len(globalLibOptions.CacheDirPath) > 0 {
 		SJWTSetURLCachedContent(urlVal, data)
 	}
 
@@ -557,7 +337,7 @@ func SJWTVerifyWithPubKey(signingString string, signature string, key interface{
 	hasher := crypto.SHA256.New()
 	hasher.Write([]byte(signingString))
 
-	if verifystatus := ecdsa.Verify(ecdsaKey, hasher.Sum(nil), r, s); verifystatus == true {
+	if ecdsa.Verify(ecdsaKey, hasher.Sum(nil), r, s) {
 		return SJWTRetOK, nil
 	}
 	return SJWTRetErrJSONSignatureInvalid, errors.New("ECDSA verification failed")
@@ -672,6 +452,9 @@ func SJWTEncodeText(headerJSON string, payloadJSON string, prvkeyPath string) (s
 // SJWTCheckAttributes - implements the verify of attributes
 func SJWTCheckAttributes(bToken string, paramInfo string) (int, error) {
 	vHeader, err := SJWTBase64DecodeString(bToken)
+	if err != nil {
+		return SJWTRetErr, err
+	}
 
 	header := SJWTHeader{}
 	err = json.Unmarshal([]byte(vHeader), &header)
@@ -906,7 +689,7 @@ func SJWTGetIdentityPrvKey(origTN string, destTN string, attestVal string, origI
 		Alg: "ES256",
 		Ppt: "shaken",
 		Typ: "passport",
-		X5u: globalLibOptions.x5u,
+		X5u: globalLibOptions.X5u,
 	}
 	if len(x5uVal) > 0 {
 		header.X5u = x5uVal
@@ -932,7 +715,7 @@ func SJWTGetIdentityPrvKey(origTN string, destTN string, attestVal string, origI
 
 	var ecdsaPrvKey *ecdsa.PrivateKey
 	if ecdsaPrvKey, ret, err = SJWTParseECPrivateKeyFromPEM(prvkeyData); err != nil {
-		return "", ret, fmt.Errorf("Unable to parse ECDSA private key: %v", err)
+		return "", ret, fmt.Errorf("unable to parse ECDSA private key: %v", err)
 	}
 	token := SJWTEncode(header, payload, ecdsaPrvKey)
 
@@ -949,7 +732,7 @@ func SJWTGetIdentity(origTN string, destTN string, attestVal string, origID stri
 
 	prvkey, err = ioutil.ReadFile(prvkeyPath)
 	if err != nil {
-		return "", SJWTRetErrFileRead, fmt.Errorf("Unable to read private key file: %v", err)
+		return "", SJWTRetErrFileRead, fmt.Errorf("unable to read private key file: %v", err)
 	}
 	return SJWTGetIdentityPrvKey(origTN, destTN, attestVal, origID, x5uVal, prvkey)
 }
