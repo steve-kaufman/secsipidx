@@ -132,31 +132,6 @@ func SJWTGetURLCacheFilePath(urlVal string) string {
 	return filePath
 }
 
-// SJWTParseECPrivateKeyFromPEM Parse PEM encoded Elliptic Curve Private Key Structure
-func SJWTParseECPrivateKeyFromPEM(key []byte) (*ecdsa.PrivateKey, int, error) {
-	var err error
-
-	var block *pem.Block
-	if block, _ = pem.Decode(key); block == nil {
-		return nil, SJWTRetErrPrvKeyInvalidFormat, errors.New("key must be PEM encoded")
-	}
-
-	var parsedKey interface{}
-	if parsedKey, err = x509.ParseECPrivateKey(block.Bytes); err != nil {
-		if parsedKey, err = x509.ParsePKCS8PrivateKey(block.Bytes); err != nil {
-			return nil, SJWTRetErrPrvKeyInvalid, err
-		}
-	}
-
-	var pkey *ecdsa.PrivateKey
-	var ok bool
-	if pkey, ok = parsedKey.(*ecdsa.PrivateKey); !ok {
-		return nil, SJWTRetErrPrvKeyInvalidEC, errors.New("not EC private key")
-	}
-
-	return pkey, SJWTRetOK, nil
-}
-
 // SJWTParseECPublicKeyFromPEM Parse PEM encoded PKCS1 or PKCS8 public key
 func SJWTParseECPublicKeyFromPEM(key []byte) (*ecdsa.PublicKey, int, error) {
 	var err error
