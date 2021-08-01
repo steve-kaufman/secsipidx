@@ -97,7 +97,7 @@ func getBaseRootCAs(options SJWTLibOptions) (*x509.CertPool, *Error) {
 	if !options.ShouldVerifyWithSystemCA() {
 		return x509.NewCertPool(), nil
 	}
-	systemCAs, err := x509.SystemCertPool()
+	systemCAs, err := SystemCertPool()
 	if err != nil {
 		return nil, &Error{Code: SJWTRetErrCertProcessing, Msg: err.Error()}
 	}
@@ -107,6 +107,9 @@ func getBaseRootCAs(options SJWTLibOptions) (*x509.CertPool, *Error) {
 func addCustomCAsIfNeeded(options SJWTLibOptions, rootCAs *x509.CertPool) *Error {
 	if !options.ShouldVerifyWithCustomCA() {
 		return nil
+	}
+	if options.CertCAFile == "" {
+		return &Error{Code: SJWTRetErrCertNoCAFile, Msg: "no CA file"}
 	}
 	err := addCAFileToPool(options.CertCAFile, rootCAs)
 	if err != nil {
@@ -120,8 +123,10 @@ func buildInterCAsWithOptions(options SJWTLibOptions, certs Certs) (*x509.CertPo
 	if !options.ShouldVerifyWithIntermediateCA() {
 		return interCAs, nil
 	}
-
-	err := addCAFileToPool(globalLibOptions.CertCAInter, interCAs)
+	if options.CertCAInter == "" {
+		return nil, &Error{Code: SJWTRetErrCertNoCAInter, Msg: "no intermediate CA file"}
+	}
+	err := addInterCAFileToPool(globalLibOptions.CertCAInter, interCAs)
 	if err != nil {
 		return nil, err
 	}
@@ -143,11 +148,26 @@ func addCAFileToPool(fileName string, rootCAs *x509.CertPool) *Error {
 	return nil
 }
 
+func addInterCAFileToPool(fileName string, interCAs *x509.CertPool) *Error {
+	certsCA, err := ioutil.ReadFile(fileName)
+	if err != nil {
+		return &Error{Code: SJWTRetErrCertReadCAInter, Msg: "failed to read intermediate CA file"}
+	}
+
+	if ok := interCAs.AppendCertsFromPEM(certsCA); !ok {
+		return &Error{Code: SJWTRetErrCertProcessing, Msg: "failed to append intermediate CA file"}
+	}
+
+	return nil
+}
+
 func verifyWithCLRFile(options SJWTLibOptions, certs Certs) *Error {
 	if !options.ShouldVerifyWithCLRFile() {
 		return nil
 	}
-
+	if options.CertCRLFile == "" {
+		return &Error{Code: SJWTRetErrCertNoCRLFile, Msg: "no CRL file"}
+	}
 	rootCRL, err := getRootCRL()
 	if err != nil {
 		return err
