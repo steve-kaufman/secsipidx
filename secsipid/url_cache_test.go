@@ -26,6 +26,8 @@ func TestGetURLContent(t *testing.T) {
 	os.Remove("http_example.com_foo")
 	os.Remove("http_localhost:5555_foo")
 
+	tcpDialErrMsg := getTcpDialErrMsg()
+
 	runTest := func(t *testing.T, testCase GetURLValueTest) {
 		expect := expectate.Expect(t) // testing utility
 
@@ -93,7 +95,7 @@ func TestGetURLContent(t *testing.T) {
 
 			expectedContent: nil,
 			expectedErrCode: secsipid.SJWTRetErrHTTPGet,
-			expectedErrMsg:  `http get failure: Get "http://localhost:5555/foo": dial tcp 127.0.0.1:5555: connect: connection refused`,
+			expectedErrMsg:  tcpDialErrMsg,
 		})
 	})
 
@@ -178,7 +180,7 @@ func TestGetURLContent(t *testing.T) {
 
 			expectedContent: nil,
 			expectedErrCode: secsipid.SJWTRetErrHTTPGet,
-			expectedErrMsg:  `http get failure: Get "http://localhost:5555/foo": dial tcp 127.0.0.1:5555: connect: connection refused`,
+			expectedErrMsg:  tcpDialErrMsg,
 		})
 	})
 
@@ -228,4 +230,11 @@ func startTestServer(handler http.Handler) (shutdown func()) {
 		server.Shutdown(context.Background())
 		listener.Close()
 	}
+}
+
+func getTcpDialErrMsg() string {
+	// Can't hardcode this error message because localhost resolves differently
+	// on different machines (like a GitHub actions container)
+	_, tcpDialErr := http.Get("http://localhost:5555/foo")
+	return "http get failure: " + tcpDialErr.Error()
 }
